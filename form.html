@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>予約受付</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+  // ───────── ここだけ書き換えてください ─────────
+  const CONFIG = {
+    LIFF_ID: 'https://miniapp.line.me/2011684074-CjrkPSIa
+',   // 例: 2012345678-AbCdEfGh
+    GAS_URL: 'https://miniapp.line.me/2011684072-bYP2FSbl'          // 例: https://script.google.com/macros/s/……/exec
+  };
+  // 種別（予約メモアプリに合わせて増減できます）
+  const TYPES = [
+    '身体介護', '生活援助', '通院等乗降介助', '居宅介護　通院介助', '保険外通院介助',
+    '重度訪問介護', '移動支援', '同行援護', '保険外', 'キャンセル', 'その他'
+  ];
+  // 「行き」「帰り」で入力する種別
+  const ROUND_TRIP = ['通院等乗降介助', '居宅介護　通院介助', '保険外通院介助'];
+  // 「院内付き添い」を選ぶ種別
+  const ESCORT = ['居宅介護　通院介助'];
+  // ────────────────────────────────────
+</script>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #fff; --text: #1f2933; --muted: #6b7785; --line: #cfd6de;
+    --accent: #06a14a; --accent-weak: #e6f6ec; --danger: #c92a2a; --danger-weak: #fff0f0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: "BIZ UDPGothic", "BIZ UDゴシック", "Hiragino Sans", "Yu Gothic", sans-serif;
+    font-size: 17px; line-height: 1.6; padding-bottom: env(safe-area-inset-bottom);
+  }
+  header { background: var(--accent); color: #fff; padding: 14px 16px; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 2px 0 0; font-size: 13px; opacity: .9; }
+  main { max-width: 560px; margin: 0 auto; padding: 16px 16px 120px; }
+  .field { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  label.title { display: block; font-weight: 700; margin-bottom: 6px; }
+  .req { display: inline-block; margin-left: 6px; font-size: 12px; color: #fff; background: var(--danger); border-radius: 4px; padding: 0 6px; vertical-align: 2px; }
+  .opt { display: inline-block; margin-left: 6px; font-size: 12px; color: var(--muted); }
+  input[type=text], input[type=date], input[type=time], select, textarea {
+    width: 100%; font: inherit; font-size: 18px; color: var(--text); background: #fff;
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-height: 52px;
+    -webkit-appearance: none; appearance: none;
+  }
+  select {
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 22px) 50%, calc(100% - 16px) 50%;
+    background-size: 6px 6px; background-repeat: no-repeat; padding-right: 40px;
+  }
+  textarea { min-height: 90px; resize: vertical; }
+  input:focus, select:focus, textarea:focus { outline: 3px solid rgba(6,161,74,.25); border-color: var(--accent); }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > * { flex: 1; min-width: 0; }
+  .row .sep { flex: 0 0 auto; color: var(--muted); }
+  .sub { font-size: 14px; color: var(--muted); margin: 8px 0 4px; }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .choices { display: flex; gap: 10px; }
+  .choices label {
+    flex: 1; text-align: center; border: 1px solid var(--line); border-radius: 10px; padding: 12px 0;
+    font-weight: 700; background: #fff; cursor: pointer;
+  }
+  .choices input { position: absolute; opacity: 0; pointer-events: none; }
+  .choices input:checked + span { color: var(--accent); }
+  .choices label:has(input:checked) { border-color: var(--accent); background: var(--accent-weak); }
+  .hidden { display: none !important; }
+  .files { list-style: none; margin: 10px 0 0; padding: 0; }
+  .files li {
+    display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px; margin-bottom: 8px; background: #fff;
+  }
+  .files img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; flex: 0 0 auto; }
+  .files .pdf { width: 56px; height: 56px; border-radius: 6px; background: var(--danger-weak); color: var(--danger); display: grid; place-items: center; font-weight: 700; flex: 0 0 auto; }
+  .files .name { flex: 1; min-width: 0; font-size: 14px; word-break: break-all; }
+  .files button { border: none; background: none; color: var(--danger); font: inherit; font-size: 14px; padding: 8px; }
+  .add-file {
+    display: block; width: 100%; text-align: center; border: 2px dashed var(--line); border-radius: 10px;
+    padding: 14px; color: var(--muted); font-weight: 700; cursor: pointer; background: #fff;
+  }
+  .error { background: var(--danger-weak); color: var(--danger); border: 1px solid #f3c1c1; border-radius: 10px; padding: 12px; margin-bottom: 12px; white-space: pre-wrap; }
+  .field.invalid { border-color: var(--danger); }
+  .submit-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; background: rgba(244,246,248,.96);
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line);
+  }
+  .submit-bar button, .btn {
+    display: block; width: 100%; max-width: 560px; margin: 0 auto; font: inherit; font-size: 19px; font-weight: 700;
+    border: none; border-radius: 12px; padding: 16px; background: var(--accent); color: #fff; cursor: pointer;
+  }
+  .btn.secondary { background: #fff; color: var(--text); border: 1px solid var(--line); margin-top: 10px; }
+  button:disabled { opacity: .6; }
+  .center { text-align: center; padding: 48px 16px; }
+  .done-icon { font-size: 56px; line-height: 1; }
+  .summary { text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; white-space: pre-wrap; margin: 16px 0; font-size: 15px; }
+  .spinner { width: 40px; height: 40px; border: 4px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tabs { display: flex; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  .tabs button {
+    flex: 1; font: inherit; font-weight: 700; font-size: 16px; background: none; border: none;
+    border-bottom: 3px solid transparent; padding: 12px 4px; color: var(--muted); cursor: pointer;
+  }
+  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .hist-note { font-size: 14px; color: var(--muted); margin: 0 0 12px; }
+  .hist-item { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+  .hist-item.open { border-left: 5px solid #d9480f; }
+  .hist-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+  .hist-status { font-size: 13px; font-weight: 700; border-radius: 10px; padding: 1px 8px; }
+  .hist-status.open { background: #fff1e8; color: #d9480f; }
+  .hist-status.done { background: var(--accent-weak); color: var(--accent); }
+  .hist-body { white-space: pre-wrap; word-break: break-word; margin-top: 6px; font-size: 15px; }
+  .overlay { position: fixed; inset: 0; background: rgba(255,255,255,.85); display: grid; place-items: center; z-index: 10; }
+</style>
+</head>
+<body>
+<header>
+  <h1>予約受付</h1>
+  <p>有限会社 沖縄介護センター</p>
+</header>
+<nav class="tabs hidden" id="tabs">
+  <button type="button" class="active" data-tab="form">予約を登録</button>
+  <button type="button" data-tab="history">送った履歴</button>
+</nav>
+
+<!-- 読み込み中 -->
+<div id="loading" class="center"><div class="spinner"></div>読み込み中…</div>
+
+<!-- エラー（開けないとき） -->
+<div id="fatal" class="center hidden"></div>
+
+<!-- 入力フォーム -->
+<main id="formView" class="hidden">
+  <div id="formError" class="error hidden"></div>
+
+  <div class="field" data-field="user">
+    <label class="title" for="user">利用者名<span class="req">必須</span></label>
+    <input type="text" id="user" list="userList" autocomplete="off" placeholder="例：比嘉 太郎">
+    <datalist id="userList"></datalist>
+  </div>
+
+  <div class="field" data-field="date">
+    <label class="title" for="date">日付<span class="req">必須</span></label>
+    <input type="date" id="date">
+  </div>
+
+  <div class="field" data-field="type">
+    <label class="title" for="type">種別<span class="req">必須</span></label>
+    <select id="type"><option value="">選んでください</option></select>
+  </div>
+
+  <!-- 通常の種別 -->
+  <div id="normalBox">
+    <div class="field">
+      <label class="title">時間<span class="opt">分かれば</span></label>
+      <div class="row">
+        <input type="time" id="start" step="300" aria-label="開始時刻">
+        <span class="sep">〜</span>
+        <input type="time" id="end" step="300" aria-label="終了時刻">
+      </div>
+    </div>
+    <div class="field">
+      <label class="title" for="place">病院・行き先<span class="opt">任意</span></label>
+      <input type="text" id="place" placeholder="例：那覇市立病院">
+    </div>
+  </div>
+
+  <!-- 行き・帰りの種別 -->
+  <div id="tripBox" class="hidden">
+    <div class="field">
+      <label class="title">行き<span class="opt">無い場合は空欄</span></label>
+      <div class="sub">お迎えの時刻</div>
+      <input type="time" id="goTime" step="300" aria-label="行きの時刻">
+      <div class="sub">詳細</div>
+      <input type="text" id="goDetail" placeholder="例：自宅迎え→那覇市立病院">
+    </div>
+    <div class="field" id="escortBox">
+      <label class="title">院内付き添い</label>
+      <div class="choices">
+        <label><input type="radio" name="escort" value="あり"><span>あり</span></label>
+        <label><input type="radio" name="escort" value="なし" checked><span>なし</span></label>
+      </div>
+    </div>
+    <div class="field" id="backBox">
+      <label class="title" for="back">帰り<span class="opt">無い場合は空欄</span></label>
+      <input type="text" id="back" placeholder="例：あり／13:00頃">
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="title" for="memo">メモ<span class="opt">任意</span></label>
+    <textarea id="memo" placeholder="例：家族から電話で依頼。車いす使用。"></textarea>
+  </div>
+
+  <div class="field">
+    <label class="title">予約表の写真・PDF<span class="opt">3つまで</span></label>
+    <label class="add-file" id="addFileBtn">＋ 写真・PDFを追加
+      <input type="file" id="fileInput" accept="image/*,application/pdf" multiple class="hidden">
+    </label>
+    <ul class="files" id="fileList"></ul>
+  </div>
+</main>
+
+<div class="submit-bar hidden" id="submitBar">
+  <button type="button" id="submitBtn">この内容で送る</button>
+</div>
+
+<!-- 送った履歴 -->
+<main id="historyView" class="hidden">
+  <p class="hist-note" id="histNote"></p>
+  <div id="histList"></div>
+  <button type="button" class="btn secondary" id="histReload">更新</button>
+</main>
+
+<!-- 送信完了 -->
+<main id="doneView" class="hidden">
+  <div class="center" style="padding-top:24px">
+    <div class="done-icon">✅</div>
+    <h2 style="margin:12px 0 0">送信しました</h2>
+    <p id="doneNote" style="color:var(--muted);margin:6px 0 0">事務所で確認します。</p>
+    <div class="summary" id="doneSummary"></div>
+    <button type="button" class="btn" id="againBtn">続けて登録する</button>
+    <button type="button" class="btn secondary" id="closeBtn">閉じる</button>
+  </div>
+</main>
+
+<div class="overlay hidden" id="sending"><div class="center"><div class="spinner"></div>送信しています…<br><small style="color:var(--muted)">画面を閉じずにお待ちください</small></div></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const MAX_FILES = 3;
+  const MAX_PDF_BYTES = 10 * 1024 * 1024;
+  const MAX_IMAGE_PX = 1600;
+  let files = [];      // { name, mimeType, data(base64), preview }
+  let submitting = false;
+  let submissionId = newId();
+
+  function newId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return Date.now().toString(36) + Math.random().toString(36).slice(2);
+  }
+  function show(id) { $(id).classList.remove('hidden'); }
+  function hide(id) { $(id).classList.add('hidden'); }
+  function fatal(msg) {
+    hide('loading'); hide('formView'); hide('submitBar');
+    $('fatal').innerHTML = '';
+    const p = document.createElement('p');
+    p.style.whiteSpace = 'pre-wrap';
+    p.textContent = msg;
+    $('fatal').appendChild(p);
+    show('fatal');
+  }
+
+  // ───── 利用者名の候補（この端末に保存） ─────
+  function loadNames() {
+    try { return JSON.parse(localStorage.getItem('recentNames') || '[]'); } catch (e) { return []; }
+  }
+  function saveName(name) {
+    try {
+      const list = [name].concat(loadNames().filter(n => n !== name)).slice(0, 30);
+      localStorage.setItem('recentNames', JSON.stringify(list));
+    } catch (e) { /* 保存できない端末では何もしない */ }
+  }
+  function renderNames() {
+    $('userList').innerHTML = '';
+    loadNames().forEach(n => {
+      const o = document.createElement('option');
+      o.value = n;
+      $('userList').appendChild(o);
+    });
+  }
+
+  // ───── 種別による表示切り替え ─────
+  TYPES.forEach(t => {
+    const o = document.createElement('option');
+    o.value = t; o.textContent = t;
+    $('type').appendChild(o);
+  });
+  function updateType() {
+    const t = $('type').value;
+    const trip = ROUND_TRIP.indexOf(t) >= 0;
+    $('normalBox').classList.toggle('hidden', trip);
+    $('tripBox').classList.toggle('hidden', !trip);
+    $('escortBox').classList.toggle('hidden', ESCORT.indexOf(t) < 0);
+    updateEscort();
+  }
+  function escortValue() {
+    const el = document.querySelector('input[name=escort]:checked');
+    return el ? el.value : '';
+  }
+  function updateEscort() {
+    const hasEscort = ESCORT.indexOf($('type').value) >= 0 && escortValue() === 'あり';
+    $('backBox').classList.toggle('hidden', hasEscort);
+  }
+  $('type').addEventListener('change', updateType);
+  // 入力されたら赤枠を消す
+  ['user', 'date', 'type'].forEach(id => ['input', 'change'].forEach(ev => $(id).addEventListener(ev, () => {
+    if ($(id).value) document.querySelector('[data-field=' + id + ']').classList.remove('invalid');
+    if (!document.querySelector('.field.invalid')) hide('formError');
+  })));
+  document.querySelectorAll('input[name=escort]').forEach(r => r.addEventListener('change', updateEscort));
+
+  // ───── 添付ファイル ─────
+  $('fileInput').addEventListener('change', async e => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = '';
+    for (const file of picked) {
+      if (files.length >= MAX_FILES) { alert('添付は3つまでです'); break; }
+      try {
+        if (file.type === 'application/pdf') {
+          if (file.size > MAX_PDF_BYTES) { alert('「' + file.name + '」は大きすぎます（10MBまで）'); continue; }
+          files.push({ name: file.name, mimeType: 'application/pdf', data: await readBase64(file) });
+        } else if (/^image\//.test(file.type) || /\.(jpe?g|png|heic|heif|webp)$/i.test(file.name)) {
+          const dataUrl = await shrinkImage(file);
+          files.push({ name: file.name.replace(/\.[^.]+$/, '') + '.jpg', mimeType: 'image/jpeg', data: dataUrl.split(',')[1], preview: dataUrl });
+        } else {
+          alert('「' + file.name + '」は送れません。写真かPDFを選んでください');
+        }
+      } catch (err) {
+        alert('「' + file.name + '」を読み込めませんでした。別の写真を選ぶか、トーク画面から送ってください');
+      }
+    }
+    renderFiles();
+  });
+
+  function readBase64(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',')[1]);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+  function shrinkImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, MAX_IMAGE_PX / Math.max(img.naturalWidth, img.naturalHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.naturalWidth * scale);
+        canvas.height = Math.round(img.naturalHeight * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('load')); };
+      img.src = url;
+    });
+  }
+  function renderFiles() {
+    const ul = $('fileList');
+    ul.innerHTML = '';
+    files.forEach((f, i) => {
+      const li = document.createElement('li');
+      if (f.preview) {
+        const img = document.createElement('img');
+        img.src = f.preview; img.alt = '';
+        li.appendChild(img);
+      } else {
+        const d = document.createElement('div');
+        d.className = 'pdf'; d.textContent = 'PDF';
+        li.appendChild(d);
+      }
+      const name = document.createElement('div');
+      name.className = 'name'; name.textContent = f.name;
+      li.appendChild(name);
+      const del = document.createElement('button');
+      del.type = 'button'; del.textContent = '削除';
+      del.addEventListener('click', () => { files.splice(i, 1); renderFiles(); });
+      li.appendChild(del);
+      ul.appendChild(li);
+    });
+    $('addFileBtn').classList.toggle('hidden', files.length >= MAX_FILES);
+  }
+
+  // ───── 送信 ─────
+  function collect() {
+    const type = $('type').value;
+    const trip = ROUND_TRIP.indexOf(type) >= 0;
+    const escort = ESCORT.indexOf(type) >= 0 ? escortValue() : '';
+    return {
+      user: $('user').value.trim().replace(/\s+/g, ' '),
+      date: $('date').value,
+      type,
+      roundTrip: trip,
+      start: trip ? '' : $('start').value,
+      end: trip ? '' : $('end').value,
+      place: trip ? '' : $('place').value.trim(),
+      goTime: trip ? $('goTime').value : '',
+      goDetail: trip ? $('goDetail').value.trim() : '',
+      escort,
+      back: trip && escort !== 'あり' ? $('back').value.trim() : '',
+      memo: $('memo').value.trim()
+    };
+  }
+  function validate(form) {
+    document.querySelectorAll('.field.invalid').forEach(el => el.classList.remove('invalid'));
+    const missing = [];
+    [['user', '利用者名'], ['date', '日付'], ['type', '種別']].forEach(([key, label]) => {
+      if (!form[key]) {
+        missing.push(label);
+        document.querySelector('[data-field=' + key + ']').classList.add('invalid');
+      }
+    });
+    return missing;
+  }
+  function showFormError(msg) {
+    $('formError').textContent = msg;
+    show('formError');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function summaryText(form) {
+    const lines = ['【種別】' + form.type, '【利用者】' + form.user + ' 様', '【日付】' + form.date.replace(/^\d{4}-0?(\d+)-0?(\d+)$/, '$1/$2')];
+    if (form.roundTrip) {
+      lines.push('【行き】' + ([form.goTime, form.goDetail].filter(Boolean).join(' ') || '無し'));
+      if (form.escort) lines.push('【院内付き添い】' + form.escort);
+      if (form.escort !== 'あり') lines.push('【帰り】' + (form.back || '無し'));
+    } else {
+      if (form.start || form.end) lines.push('【時間】' + form.start + '〜' + form.end);
+      if (form.place) lines.push('【行き先】' + form.place);
+    }
+    if (form.memo) lines.push('【メモ】' + form.memo);
+    if (files.length) lines.push('【添付】' + files.length + '件');
+    return lines.join('\n');
+  }
+
+  $('submitBtn').addEventListener('click', async () => {
+    if (submitting) return;
+    hide('formError');
+    const form = collect();
+    const missing = validate(form);
+    if (missing.length) { showFormError(missing.join('・') + 'を入力してください。'); return; }
+
+    const idToken = liff.getIDToken();
+    if (!idToken) { showFormError('LINEの確認ができませんでした。フォームを閉じて、もう一度開いてください。'); return; }
+
+    submitting = true;
+    $('submitBtn').disabled = true;
+    show('sending');
+    try {
+      const res = await fetch(CONFIG.GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // 事前確認（CORS）を避けるため
+        body: JSON.stringify({
+          action: 'liffSubmit', idToken, submissionId, form,
+          files: files.map(f => ({ name: f.name, mimeType: f.mimeType, data: f.data }))
+        })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || '送信できませんでした。');
+
+      saveName(form.user);
+      $('doneSummary').textContent = summaryText(form);
+      $('doneNote').textContent = data.failed
+        ? '事務所で確認します。\n※添付のうち' + data.failed + '件は保存できませんでした。トーク画面から送り直してください。'
+        : '事務所で確認します。';
+      hide('formView'); hide('submitBar'); show('doneView');
+      window.scrollTo(0, 0);
+    } catch (err) {
+      const msg = err && err.message && !/fetch|network|JSON/i.test(err.message)
+        ? err.message
+        : '送信できませんでした。電波の良いところで、もう一度「この内容で送る」を押してください。';
+      showFormError(msg);
+    } finally {
+      submitting = false;
+      $('submitBtn').disabled = false;
+      hide('sending');
+    }
+  });
+
+  function resetForm() {
+    ['user', 'date', 'start', 'end', 'place', 'goTime', 'goDetail', 'back', 'memo'].forEach(id => { $(id).value = ''; });
+    $('type').value = '';
+    document.querySelector('input[name=escort][value=なし]').checked = true;
+    files = [];
+    renderFiles();
+    renderNames();
+    updateType();
+    submissionId = newId();
+    document.querySelectorAll('.field.invalid').forEach(el => el.classList.remove('invalid'));
+    hide('formError');
+  }
+  $('againBtn').addEventListener('click', () => {
+    resetForm();
+    switchTab('form');
+    window.scrollTo(0, 0);
+  });
+  $('closeBtn').addEventListener('click', () => {
+    if (liff.isInClient()) liff.closeWindow();
+    else window.close();
+  });
+
+  // ───── 送った履歴 ─────
+  let currentTab = 'form';
+  function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    const isForm = tab === 'form';
+    hide('doneView');
+    $('formView').classList.toggle('hidden', !isForm);
+    $('submitBar').classList.toggle('hidden', !isForm);
+    $('historyView').classList.toggle('hidden', isForm);
+    window.scrollTo(0, 0);
+    if (!isForm) loadHistory();
+  }
+  document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+  $('histReload').addEventListener('click', loadHistory);
+
+  async function loadHistory() {
+    $('histNote').textContent = '';
+    $('histList').innerHTML = '<div class="center" style="padding:32px 0"><div class="spinner"></div>読み込み中…</div>';
+    try {
+      const res = await fetch(CONFIG.GAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'liffHistory', idToken: liff.getIDToken() })
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || '読み込みに失敗しました。');
+      renderHistory(data);
+    } catch (err) {
+      $('histList').innerHTML = '';
+      const box = document.createElement('div');
+      box.className = 'error';
+      box.textContent = err && err.message && !/fetch|network|JSON/i.test(err.message)
+        ? err.message : '読み込みに失敗しました。電波の良いところで「更新」を押してください。';
+      $('histList').appendChild(box);
+    }
+  }
+  function renderHistory(data) {
+    const items = data.items || [];
+    const open = items.filter(i => i.status !== '反映済み').length;
+    $('histNote').textContent = data.staff + 'さんが直近' + data.days + '日に送った受付です（' + items.length + '件' +
+      (open ? '・未処理' + open + '件' : '') + '）。';
+    const list = $('histList');
+    list.innerHTML = '';
+    if (!items.length) {
+      list.innerHTML = '<div class="center" style="padding:32px 0;color:var(--muted)">まだ送った受付はありません</div>';
+      return;
+    }
+    items.forEach(it => {
+      const done = it.status === '反映済み';
+      const card = document.createElement('div');
+      card.className = 'hist-item' + (done ? '' : ' open');
+      const meta = document.createElement('div');
+      meta.className = 'hist-meta';
+      const st = document.createElement('span');
+      st.className = 'hist-status ' + (done ? 'done' : 'open');
+      st.textContent = done ? '✅ 反映済み' : '⏳ 未処理';
+      const when = document.createElement('span');
+      when.textContent = it.receivedAt + '・' + it.kind;
+      meta.appendChild(st); meta.appendChild(when);
+      const body = document.createElement('div');
+      body.className = 'hist-body';
+      body.textContent = (it.content || (it.kind === '画像' ? '（写真）' : '')) + (it.files && it.kind !== '画像' ? '\n📎 添付' + it.files + '件' : '');
+      card.appendChild(meta); card.appendChild(body);
+      list.appendChild(card);
+    });
+  }
+
+  // ───── 起動 ─────
+  async function start() {
+    if (/ここに/.test(CONFIG.LIFF_ID) || /ここに/.test(CONFIG.GAS_URL)) {
+      fatal('設定が終わっていません。\nform.html の LIFF_ID と GAS_URL を書き換えてください。');
+      return;
+    }
+    if (typeof liff === 'undefined') {
+      fatal('読み込みに失敗しました。\n電波の良いところで、もう一度開いてください。');
+      return;
+    }
+    try {
+      await liff.init({ liffId: CONFIG.LIFF_ID });
+    } catch (err) {
+      fatal('フォームを開けませんでした。\n' + (err && err.message ? err.message : ''));
+      return;
+    }
+    if (!liff.isLoggedIn()) {
+      liff.login({ redirectUri: location.href });
+      return;
+    }
+    renderNames();
+    updateType();
+    hide('loading'); show('tabs'); show('formView'); show('submitBar');
+    // リッチメニューから ?tab=history で開いたときは履歴を表示
+    if (/[?&]tab=history/.test(location.search) || /tab%3Dhistory|tab=history/.test(location.href)) switchTab('history');
+  }
+  start();
+})();
+</script>
+</body>
+</html>
