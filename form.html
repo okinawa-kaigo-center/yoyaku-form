@@ -113,6 +113,13 @@
   .hist-status.open { background: #fff1e8; color: #d9480f; }
   .hist-status.done { background: var(--accent-weak); color: var(--accent); }
   .hist-body { white-space: pre-wrap; word-break: break-word; margin-top: 6px; font-size: 15px; }
+  /* 利用者名の候補：入力欄の下に並べる（スマホの一覧のように入力欄や下の項目を隠さないため） */
+  .suggest { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .suggest .cap { flex: 0 0 100%; font-size: 13px; color: var(--muted); }
+  .suggest button {
+    font: inherit; font-size: 16px; min-height: 44px; padding: 6px 14px; border-radius: 22px;
+    border: 1px solid var(--accent); background: var(--accent-weak); color: var(--text); cursor: pointer;
+  }
   .overlay { position: fixed; inset: 0; background: rgba(255,255,255,.85); display: grid; place-items: center; z-index: 10; }
 </style>
 </head>
@@ -138,8 +145,8 @@
 
   <div class="field" data-field="user">
     <label class="title" for="user">利用者名<span class="req">必須</span></label>
-    <input type="text" id="user" list="userList" autocomplete="off" placeholder="例：比嘉 太郎">
-    <datalist id="userList"></datalist>
+    <input type="text" id="user" autocomplete="off" placeholder="例：比嘉 太郎">
+    <div id="userSuggest" class="suggest hidden" aria-label="利用者名の候補"></div>
   </div>
 
   <div class="field" data-field="date">
@@ -265,14 +272,37 @@
       localStorage.setItem('recentNames', JSON.stringify(list));
     } catch (e) { /* 保存できない端末では何もしない */ }
   }
+  // 入力欄が空のときは最近の4人、文字を打ったら名前に含まれる人を5人まで、入力欄のすぐ下に出す
+  const norm = v => (v || '').replace(/[\s　]+/g, '');
   function renderNames() {
-    $('userList').innerHTML = '';
-    loadNames().forEach(n => {
-      const o = document.createElement('option');
-      o.value = n;
-      $('userList').appendChild(o);
+    const box = $('userSuggest');
+    const q = norm($('user').value);
+    const all = loadNames();
+    let list, cap;
+    if (!q) { list = all.slice(0, 4); cap = '最近の利用者（押すと入ります）'; }
+    else { list = all.filter(n => norm(n).indexOf(q) >= 0 && norm(n) !== q).slice(0, 5); cap = ''; }
+    box.innerHTML = '';
+    if (!list.length || document.activeElement !== $('user')) { box.classList.add('hidden'); return; }
+    if (cap) { const c = document.createElement('span'); c.className = 'cap'; c.textContent = cap; box.appendChild(c); }
+    list.forEach(n => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = n;
+      b.addEventListener('mousedown', e => e.preventDefault());   // 押したときに入力欄から外れて候補が消えないように
+      b.addEventListener('click', () => {
+        $('user').value = n;
+        box.classList.add('hidden');
+        $('user').dispatchEvent(new Event('change', { bubbles: true }));
+        $('user').blur();
+      });
+      box.appendChild(b);
     });
+    box.classList.remove('hidden');
   }
+  $('user').addEventListener('focus', renderNames);
+  $('user').addEventListener('input', renderNames);
+  $('user').addEventListener('blur', () => setTimeout(() => {
+    if (document.activeElement !== $('user')) $('userSuggest').classList.add('hidden');
+  }, 200));
 
   // ───── 種別による表示切り替え ─────
   TYPES.forEach(t => {
